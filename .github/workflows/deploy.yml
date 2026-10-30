@@ -1,0 +1,65 @@
+name: Deploy
+
+on:
+  workflow_call:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    env:
+      TF_VAR_aws_region: ${{ vars.AWS_REGION || 'us-west-2' }}
+      TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
+      TF_VAR_hosted_zone_name: ${{ vars.HOSTED_ZONE_NAME }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - run: corepack enable
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.x
+          cache: yarn
+
+      - run: yarn install --immutable
+      - run: yarn build
+
+      # The deploy role trusts only this repo's main branch.
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-west-2' }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.17.1
+          terraform_wrapper: false
+
+      # Zips dist/ and updates the function when its hash changes.
+      - name: Terraform apply
+        id: terraform
+        working-directory: infrastructure/terraform/api
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=api/terraform.tfstate" \
+            -backend-config="region=$TF_VAR_aws_region"
+          terraform apply -auto-approve -input=false
+          echo "url=$(terraform output -raw url)" >> "$GITHUB_OUTPUT"
+
+      # On the first deploy, DNS for the new domain can take a few minutes to resolve.
+      - name: Smoke test
+        run: |
+          for _ in $(seq 1 30); do
+            curl -fsS -o /dev/null "${{ steps.terraform.outputs.url }}/health" && exit 0
+            sleep 10
+          done
+          echo "${{ steps.terraform.outputs.url }}/health did not respond" >&2
+          exit 1

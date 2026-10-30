@@ -1,0 +1,5 @@
+# For running Terraform locally; CI sets these from GitHub repository variables instead.
+# Copy to terraform.tfvars (gitignored).
+domain_name      = "api.example.com"
+hosted_zone_name = "example.com" # omit when domain_name is the zone itself
+# cors_allow_origins = ["https://app.example.com"]  # when a browser app calls the API

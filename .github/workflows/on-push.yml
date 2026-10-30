@@ -1,0 +1,22 @@
+name: Main
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    uses: ./.github/workflows/check.yml
+
+  # Skipped until bootstrap's variables are set, so the template itself never deploys.
+  deploy:
+    needs: check
+    if: vars.AWS_DEPLOY_ROLE_ARN != ''
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/deploy.yml
