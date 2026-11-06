@@ -84,13 +84,14 @@ terraform plan
 | `src/local.ts` | The local server behind `yarn dev`. Never deployed. |
 | `infrastructure/terraform/bootstrap/` | One-time setup: state bucket, OIDC provider, deploy and plan roles. Local state. |
 | `infrastructure/terraform/api/` | The API: function, HTTP API, certificate, DNS records. Applied by CI. |
-| `.github/workflows/` | `on-pr.yml` checks and plans; `on-push.yml` checks and deploys `main`. `release.yml` tags and releases this template. |
+| `.github/workflows/` | `on-pr.yml` checks and plans; `on-push.yml` checks and deploys `main`. `release.yml` releases this template after a `feat` or `fix` lands. |
 
 ## Things to know
 
 - **Releasing the template.**
-  - Run **Release** from the Actions tab, or `gh workflow run release.yml`. It tags `main` and publishes a GitHub release with generated notes.
-  - With the default `bump: auto`, the commits since the last release pick the version: a breaking change (`feat!:` or `BREAKING CHANGE:`) is major, a `feat` is minor, anything else a patch. `dry_run` only prints the version.
+  - Every push to `main` that brings a breaking change, a `feat` or a `fix` tags `main` and publishes a GitHub release with generated notes. Routine `chore`, `build`, `ci` and `docs` commits wait for the next one.
+  - The commits since the last release pick the version: a breaking change (`feat!:` or `BREAKING CHANGE:`) is major, a `feat` is minor, anything else a patch.
+  - Run **Release** from the Actions tab, or `gh workflow run release.yml`, to release anyway or choose the bump; `dry_run` only prints the version.
   - It runs only in the template repository; in a repository made from it, the workflow skips until you remove its `is_template` condition.
 - **Routes live in code.** API Gateway sends every request to the function, so adding an endpoint means adding a `"METHOD /path"` entry to `routes` in [`src/handler.ts`](src/handler.ts), with no Terraform change. Unknown routes get a JSON 404.
 - **AWS access from the handler.** The function's role can only write its own logs. Grant anything else it needs (a DynamoDB table, a queue) in [`api/lambda.tf`](infrastructure/terraform/api/lambda.tf), and add the new resource types to the deploy role in [`bootstrap/roles.tf`](infrastructure/terraform/bootstrap/roles.tf). The bootstrap must be re-applied for that.
