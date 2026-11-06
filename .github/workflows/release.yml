@@ -1,0 +1,81 @@
+name: Release
+
+# Run from the Actions tab, or `gh workflow run release.yml`, to tag main and publish a GitHub
+# release with generated notes. With bump=auto the conventional commits since the last release
+# pick the version: a breaking change (`feat!:` or `BREAKING CHANGE:`) is major, a `feat` is
+# minor, and anything else is a patch. dry_run prints the version without releasing.
+#
+# It runs only in the template repository itself; a repository created from the template skips
+# it until the `is_template` condition below is removed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+      dry_run:
+        description: Only print the version it would release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+
+jobs:
+  release:
+    name: Release
+    if: github.event.repository.is_template && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Pick the version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          last=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || true)
+          range=${last:+$last..}HEAD
+          if [ -z "$(git log --format=%H "$range")" ]; then
+            echo "::error::nothing to release: no commits since $last"
+            exit 1
+          fi
+          if [ "$BUMP" = auto ]; then
+            if git log --format=%B "$range" | grep -qE '^BREAKING[ -]CHANGE:' ||
+              git log --format=%s "$range" | grep -qE '^[a-z]+(\([^)]*\))?!:'; then
+              BUMP=major
+            elif git log --format=%s "$range" | grep -qE '^feat(\([^)]*\))?:'; then
+              BUMP=minor
+            else
+              BUMP=patch
+            fi
+          fi
+          IFS=. read -r major minor patch <<< "${last#v}"
+          case "$BUMP" in
+            major) next="v$((${major:-0} + 1)).0.0" ;;
+            minor) next="v${major:-0}.$((${minor:-0} + 1)).0" ;;
+            patch) next="v${major:-0}.${minor:-0}.$((${patch:-0} + 1))" ;;
+          esac
+          {
+            echo "### ${last:-no release yet} → $next ($BUMP)"
+            echo
+            git log --format='- %s' "$range"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --generate-notes
