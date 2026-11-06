@@ -2,6 +2,8 @@
 # checks but skip the plan.
 version: 2
 updates:
+  # package.json forces minimatch to ^11.0.1 (resolutions) for GHSA-g3hv-75wg-m249, which
+  # eslint and typescript-eslint cannot reach while they require ^10; drop it once they require 11.
   - package-ecosystem: npm
     directory: /
     schedule:
